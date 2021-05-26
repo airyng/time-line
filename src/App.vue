@@ -1,28 +1,33 @@
 <template>
   <div id="app">
-    <img alt="Vue logo" src="./assets/logo.png">
-    <HelloWorld msg="Welcome to Your Vue.js App"/>
+    <p>
+      <strong>Result:</strong>
+      <template v-if="range && range.humanFormat">
+        {{range.humanFormat.start}} - {{range.humanFormat.end}}
+      </template>
+      <template v-else>
+        --
+      </template>
+    </p>
+    <v-scale
+      v-model="range"
+      controls
+      start="-30-01-1000"
+      end="12 октября 2021 г. 15:12:13"
+      class="mt-5"
+    />
   </div>
 </template>
 
 <script>
-import HelloWorld from './components/HelloWorld.vue'
-
+import VScale from '@/components/VScale'
 export default {
+  components: { VScale },
   name: 'App',
-  components: {
-    HelloWorld
+  data () {
+    return {
+      range: null
+    }
   }
 }
 </script>
-
-<style>
-#app {
-  font-family: Avenir, Helvetica, Arial, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  text-align: center;
-  color: #2c3e50;
-  margin-top: 60px;
-}
-</style>
