@@ -66,6 +66,9 @@ const convertAnyDateToUnix = (dateString) => {
   else if (date.indexOf('-') !== -1) {
     const isBC = date.indexOf('-') === 0 ? ' BC' : '' // Before our era
     const eraFromat = date.indexOf('-') === 0 ? ' NNNNN' : '' // Before our era
+    if (date.indexOf('-') === 0) {
+      date = date.replace('-', '')
+    }
     if (date.indexOf(':') !== -1) {
       return moment(date + isBC, 'YYYY-MM-DD HH:mm:ss' + eraFromat).unix()
     } else {
@@ -93,8 +96,9 @@ const getValueBetweenRange = (startValue, endValue, percent) => {
 }
 
 const getPercent = (startValue, endValue, curValue) => {
-  return ((100 / ((endValue + startValue) / curValue)) - 100) * -1
-  // return 100 - (100 / ((endValue + startValue) / curValue))
+  const diff = endValue - startValue
+  const x = curValue - startValue
+  return 100*x/diff
 }
 
 export {

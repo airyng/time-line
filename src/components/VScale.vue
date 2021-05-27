@@ -18,11 +18,11 @@
       <div v-if="dateSteps && dateSteps.length" class="timeline__streaks">
         <div
           v-for="(step, i) in dateSteps"
-          :key="step"
+          :key="step.unix"
           class="timeline__streak"
-          :class="{ 'd-none': i === 0 || i === dateSteps.length -1}"
+          :class="{ 'd-none': dateSteps.length > 2 && (i === 0 || i === dateSteps.length -1)}"
           :style="`left: ${100 / (dateSteps.length -1) * (i)}%;`"
-        ></div>  
+        >{{step.humanFormat}}</div>  
       </div>
     </div>
     <div v-else>
@@ -32,10 +32,9 @@
 </template>
 
 <script>
-// TODO: поддержка работы на мобильных устройствах и умение компонента самостоятельно перерисовать себя
 import moment from 'moment'
 import { defineDateFormat, convertAnyDateToUnix, getValueBetweenRange, getPercent } from '@/utils'
-import beManager from '@/utils/browserEventsManager'
+import { manager as beManager } from '@/utils/browserEventsManager'
 
 export default {
   props: {
@@ -45,7 +44,8 @@ export default {
     disabled: { type: Boolean, default: false },
     minPickerWindowWidth: { type: String, default: '50' },
     dateFormat: { type: String, default: null },
-    value: { type: Object, default: null }
+    value: { type: Object, default: null },
+    streakFormat: { type: String, default: 'DD.MM.YYYY' }
   },
   data () {
     return {
@@ -55,19 +55,27 @@ export default {
       curPickerPos: 0,
       lastPickerPos: 0,
       error: null,
-      range: {}
+      range: {},
+      beManager
     }
   },
   computed: {
     dateSteps () {
-      const stepsCount = 9
+      this.forceRecomputeCounter
+      let stepsCount = 9
+      const windowWidth = window.innerWidth
+      if (windowWidth <= 1200) { stepsCount = 7 }
+      if (windowWidth <= 1000) { stepsCount = 5 }
+      if (windowWidth <= 800) { stepsCount = 3 }
+      if (windowWidth <= 500) { stepsCount = 2 }
+
       const dateDiff = this.endDateUnix - this.startDateUnix
       const timeStep = dateDiff / stepsCount
 
       const stepsArray = []
       let nStep = this.startDateUnix
       do {
-        stepsArray.push(nStep)
+        stepsArray.push({ unix: nStep, humanFormat: moment.unix(nStep).format(this.streakFormat) })
         nStep += timeStep
       } while (nStep <= this.endDateUnix)
       return stepsArray
@@ -79,10 +87,12 @@ export default {
       return moment.unix(convertAnyDateToUnix(this.end))
     },
     startDateUnix () {
-      return this.startDate.unix()
+      const result = convertAnyDateToUnix(this.start)
+      // console.log('moment start', moment(result).format('DD.MM.YYYY'))
+      return result
     },
     endDateUnix () {
-      return this.endDate.unix()
+      return convertAnyDateToUnix(this.end)
     },
     pickerStyle () {
       return this.pickerPositions + ` width: ${this.pickerWidth}px`
@@ -106,16 +116,17 @@ export default {
     },
     endDateUnix () {
       this.validateDates()
-    },
-    value () { // newVal
-      // if (newVal?.start && newVal?.end && (newVal.start !== this.range.start || newVal.end !== this.range.start)) {
-      //   this.reinit(false)
-      // }
-    }
+    }//,
+    // value (newVal) {
+    //   if (newVal?.start && newVal?.end && (newVal.start !== this.range.start || newVal.end !== this.range.start)) {
+    //     this.reinit(false)
+    //     // this.setPickerVals(newVal.start, newVal.end)
+    //   }
+    // }
   },
   mounted () {
-    beManager.addEvent('vscale', window, 'resize', this.reinit)
-
+    this.beManager = beManager()
+    this.beManager.addEvent('vscale', window, 'resize', this.reinit)
     this.init()
   },
   methods: {
@@ -134,7 +145,8 @@ export default {
         this.pickerWidth = this.$refs.picker.parentNode.clientWidth
       }
       // To initiate recalc computed props do next
-      this.forceRecomputeCounter++
+      setTimeout(()=>{ this.forceRecomputeCounter++ }, 0)
+      
       if (doCaclulate) {
         this.calculate()
       }
@@ -144,22 +156,18 @@ export default {
       this.init(false)
     },
     setPickerVals(start, end) {
-      const startPercent = getPercent(this.startDateUnix, this.endDateUnix, start)
+      // console.log(start,end)
+      let startPercent = getPercent(this.startDateUnix, this.endDateUnix, start)
+      // if (startPercent < 0) { startPercent = startPercent }
       const startCornerOffset = (this.$refs.picker.parentNode.clientWidth / 100) * startPercent
 
       const endPercent = getPercent(this.startDateUnix, this.endDateUnix, end)
       const endCornerOffset = (this.$refs.picker.parentNode.clientWidth / 100) * endPercent
       const pickerWidth = endCornerOffset - startCornerOffset
-      console.log('start', start)
-      console.log('end', end)
-      console.log('startPercent', startPercent)
-      console.log('startCornerOffset', startCornerOffset)
-      console.log('endPercent', endPercent)
-      console.log('endCornerOffset', endCornerOffset)
-      console.log('pickerWidth', pickerWidth)
 
       this.pickerWidth = pickerWidth
-      this.movePicker(startCornerOffset * -1)
+      this.lastPickerPos = 0
+      this.movePicker((startCornerOffset) * -1)
       this.forceRecomputeCounter++
     },
     validateDates () {
@@ -198,7 +206,7 @@ export default {
           humanDatesArr[index] = humanDatesArr[index].replace('-', '')
         }
       }
-      if (!this.value || this.value.start !== startResult || this.value.end !== endResult) {
+      if (!this.value || this.value.start !== startResult || this.value.end !== endResult || !this.value.humanFormat) {
         this.$emit('input',
           {
             start: startResult,
@@ -210,7 +218,6 @@ export default {
           }
         )
       }
-      
     },
     cornerSwipeInit (cornerRef, cornerSide) {
       if (!this.picker || !cornerRef) {
@@ -219,12 +226,12 @@ export default {
       }
 
       const containerKey = 'cornerSwipe' + (cornerSide ? '_r' : '')
-      beManager.addEvent(containerKey, cornerRef, 'touchstart', startTouch)
-      beManager.addEvent(containerKey, cornerRef, 'mousedown', startTouch)
-      beManager.addEvent(containerKey, document.body, 'mousemove', moveTouch)
-      beManager.addEvent(containerKey, document.body, 'touchmove', moveTouch)
-      beManager.addEvent(containerKey, document.body, 'mouseup', stopTouch)
-      beManager.addEvent(containerKey, document.body, 'touchend', stopTouch)
+      this.beManager.addEvent(containerKey, cornerRef, 'touchstart', startTouch)
+      this.beManager.addEvent(containerKey, cornerRef, 'mousedown', startTouch)
+      this.beManager.addEvent(containerKey, document.body, 'mousemove', moveTouch)
+      this.beManager.addEvent(containerKey, document.body, 'touchmove', moveTouch)
+      this.beManager.addEvent(containerKey, document.body, 'mouseup', stopTouch)
+      this.beManager.addEvent(containerKey, document.body, 'touchend', stopTouch)
       
       const that = this
       var initialX = null
@@ -265,12 +272,12 @@ export default {
         return
       }
 
-      beManager.addEvent('windowSwipe', this.pickerWindow, 'touchstart', startTouch)
-      beManager.addEvent('windowSwipe', this.pickerWindow, 'mousedown', startTouch)
-      beManager.addEvent('windowSwipe', document.body, 'mousemove', moveTouch)
-      beManager.addEvent('windowSwipe', document.body, 'touchmove', moveTouch)
-      beManager.addEvent('windowSwipe', document.body, 'mouseup', stopTouch)
-      beManager.addEvent('windowSwipe', document.body, 'touchend', stopTouch)
+      this.beManager.addEvent('windowSwipe', this.pickerWindow, 'touchstart', startTouch)
+      this.beManager.addEvent('windowSwipe', this.pickerWindow, 'mousedown', startTouch)
+      this.beManager.addEvent('windowSwipe', document.body, 'mousemove', moveTouch)
+      this.beManager.addEvent('windowSwipe', document.body, 'touchmove', moveTouch)
+      this.beManager.addEvent('windowSwipe', document.body, 'mouseup', stopTouch)
+      this.beManager.addEvent('windowSwipe', document.body, 'touchend', stopTouch)
 
       const that = this
       var initialX = null
@@ -341,9 +348,9 @@ export default {
       }
     },
     destroyEvents () {
-      beManager.removeAllEvents('cornerSwipe')
-      beManager.removeAllEvents('cornerSwipe_r')
-      beManager.removeAllEvents('windowSwipe')
+      this.beManager.removeAllEvents('cornerSwipe')
+      this.beManager.removeAllEvents('cornerSwipe_r')
+      this.beManager.removeAllEvents('windowSwipe')
     }
   },
   beforeDestroy () {
@@ -390,7 +397,7 @@ export default {
 .timeline__picker__corner
   width: 15px
   height: 100%
-  background-color: gray
+  background-color: #808080a8
   cursor: col-resize
 .timeline__streaks
   width: 100%
@@ -399,6 +406,15 @@ export default {
 .timeline__streak
   position: absolute
   height: 20px
-  border: 1px solid #ca0070
-  bottom: 0
+  bottom: 15px
+  transform: translateX(-50%)
+  &::after
+    content: ''
+    position: relative
+    left: 50%
+    width: 0px
+    bottom: -5px
+    height: 12px
+    border: 1px solid red
+    display: block
 </style>
