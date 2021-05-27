@@ -34,7 +34,9 @@
 <script>
 // TODO: поддержка работы на мобильных устройствах и умение компонента самостоятельно перерисовать себя
 import moment from 'moment'
-import { defineDateFormat, convertAnyDateToUnix, getValueBetweenRange } from '@/utils'
+import { defineDateFormat, convertAnyDateToUnix, getValueBetweenRange, getPercent } from '@/utils'
+import beManager from '@/utils/browserEventsManager'
+
 export default {
   props: {
     start: { type: String, default: '0' },
@@ -42,7 +44,8 @@ export default {
     controls: { type: Boolean, default: false },
     disabled: { type: Boolean, default: false },
     minPickerWindowWidth: { type: String, default: '50' },
-    dateFormat: { type: String, default: null }
+    dateFormat: { type: String, default: null },
+    value: { type: Object, default: null }
   },
   data () {
     return {
@@ -51,7 +54,8 @@ export default {
       pickerWidth: 500,
       curPickerPos: 0,
       lastPickerPos: 0,
-      error: null
+      error: null,
+      range: {}
     }
   },
   computed: {
@@ -102,26 +106,62 @@ export default {
     },
     endDateUnix () {
       this.validateDates()
+    },
+    value () { // newVal
+      // if (newVal?.start && newVal?.end && (newVal.start !== this.range.start || newVal.end !== this.range.start)) {
+      //   this.reinit(false)
+      // }
     }
   },
   mounted () {
-    // TODO: позаботится о том, что бы начальное значение range могло влиять на начальное положение
-    // слайдера. и так же надо отслеживать изменение этого значения
-    this.picker = this.$refs.picker
-    this.validateDates()
-    this.windowSwipeInit()
-    this.cornerSwipeInit(this.$refs.pickerCornerL, 'L')
-    this.cornerSwipeInit(this.$refs.pickerCornerR, 'R')
+    beManager.addEvent('vscale', window, 'resize', this.reinit)
 
-    if(!this.controls) { // maximize picker window
-      this.pickerWidth = this.$refs.picker.parentNode.clientWidth
-    }
-    // To initiate recalc computed props do next
-    this.forceRecomputeCounter++
-    // Or next
-    this.calculate()
+    this.init()
   },
   methods: {
+    init (doCaclulate = true) {
+      this.picker = this.$refs.picker
+      this.validateDates()
+      this.windowSwipeInit()
+      this.cornerSwipeInit(this.$refs.pickerCornerL, 'L')
+      this.cornerSwipeInit(this.$refs.pickerCornerR, 'R')
+      
+      if (this.value?.start && this.value?.end) {
+        this.setPickerVals(this.value.start, this.value.end)
+      }
+
+      if(!this.controls) { // maximize picker window
+        this.pickerWidth = this.$refs.picker.parentNode.clientWidth
+      }
+      // To initiate recalc computed props do next
+      this.forceRecomputeCounter++
+      if (doCaclulate) {
+        this.calculate()
+      }
+    },
+    reinit () {
+      this.destroyEvents()
+      this.init(false)
+    },
+    setPickerVals(start, end) {
+      const startPercent = getPercent(this.startDateUnix, this.endDateUnix, start)
+      const startCornerOffset = (this.$refs.picker.parentNode.clientWidth / 100) * startPercent
+
+      const endPercent = getPercent(this.startDateUnix, this.endDateUnix, end)
+      const endCornerOffset = (this.$refs.picker.parentNode.clientWidth / 100) * endPercent
+      const pickerWidth = endCornerOffset - startCornerOffset
+      console.log('start', start)
+      console.log('end', end)
+      console.log('startPercent', startPercent)
+      console.log('startCornerOffset', startCornerOffset)
+      console.log('endPercent', endPercent)
+      console.log('endCornerOffset', endCornerOffset)
+      console.log('pickerWidth', pickerWidth)
+
+      this.pickerWidth = pickerWidth
+      this.movePicker(startCornerOffset * -1)
+      this.forceRecomputeCounter++
+    },
     validateDates () {
       if (this.startDateUnix >= this.endDateUnix) {
         this.error = 'Дата начала не может равняться или быть больше даты окончания'
@@ -130,7 +170,7 @@ export default {
       }
       return true
     },
-    calculate () {
+    calculate (update = true) {
       const start = this.curPickerPos
       const end = this.curPickerPos + this.pickerWidth
       const maxWidth = this.$refs.picker.parentNode.clientWidth
@@ -138,7 +178,10 @@ export default {
       const endPercent = 100 / (maxWidth / end)
       const startResult = getValueBetweenRange(this.endDateUnix, this.startDateUnix, startPercent)
       const endResult = getValueBetweenRange(this.endDateUnix, this.startDateUnix, endPercent)
-      this.returnValue(startResult, endResult)
+      if (update) {
+        this.returnValue(startResult, endResult)
+      }
+      this.range = {start: startResult, end: endResult}
     },
     returnValue (startResult, endResult) {
       const dateFormat = this.dateFormat || defineDateFormat(this.start)
@@ -155,17 +198,19 @@ export default {
           humanDatesArr[index] = humanDatesArr[index].replace('-', '')
         }
       }
-
-      this.$emit('input',
-        {
-          start: startResult,
-          end: endResult,
-          humanFormat: {
-            start: humanDatesArr[0],
-            end: humanDatesArr[1]
+      if (!this.value || this.value.start !== startResult || this.value.end !== endResult) {
+        this.$emit('input',
+          {
+            start: startResult,
+            end: endResult,
+            humanFormat: {
+              start: humanDatesArr[0],
+              end: humanDatesArr[1]
+            }
           }
-        }
-      )
+        )
+      }
+      
     },
     cornerSwipeInit (cornerRef, cornerSide) {
       if (!this.picker || !cornerRef) {
@@ -173,12 +218,13 @@ export default {
         return
       }
 
-      cornerRef.addEventListener("touchstart", startTouch, false)
-      cornerRef.addEventListener("mousedown", startTouch, false)
-      document.body.addEventListener("mousemove", moveTouch, false)
-      document.body.addEventListener("touchmove", moveTouch, false)
-      document.body.addEventListener("mouseup", stopTouch, false)
-      document.body.addEventListener("touchend", stopTouch, false)
+      const containerKey = 'cornerSwipe' + (cornerSide ? '_r' : '')
+      beManager.addEvent(containerKey, cornerRef, 'touchstart', startTouch)
+      beManager.addEvent(containerKey, cornerRef, 'mousedown', startTouch)
+      beManager.addEvent(containerKey, document.body, 'mousemove', moveTouch)
+      beManager.addEvent(containerKey, document.body, 'touchmove', moveTouch)
+      beManager.addEvent(containerKey, document.body, 'mouseup', stopTouch)
+      beManager.addEvent(containerKey, document.body, 'touchend', stopTouch)
       
       const that = this
       var initialX = null
@@ -218,13 +264,14 @@ export default {
         console.error('VScale component: something went wrong while window initialization.')
         return
       }
-      this.pickerWindow.addEventListener("touchstart", startTouch, false)
-      this.pickerWindow.addEventListener("mousedown", startTouch, false)
-      document.body.addEventListener("mousemove", moveTouch, false)
-      document.body.addEventListener("touchmove", moveTouch, false)
-      document.body.addEventListener("mouseup", stopTouch, false)
-      document.body.addEventListener("touchend", stopTouch, false)
-      
+
+      beManager.addEvent('windowSwipe', this.pickerWindow, 'touchstart', startTouch)
+      beManager.addEvent('windowSwipe', this.pickerWindow, 'mousedown', startTouch)
+      beManager.addEvent('windowSwipe', document.body, 'mousemove', moveTouch)
+      beManager.addEvent('windowSwipe', document.body, 'touchmove', moveTouch)
+      beManager.addEvent('windowSwipe', document.body, 'mouseup', stopTouch)
+      beManager.addEvent('windowSwipe', document.body, 'touchend', stopTouch)
+
       const that = this
       var initialX = null
       let isMoving = false
@@ -292,7 +339,15 @@ export default {
       } else {
         this.curPickerPos = newPos
       }
+    },
+    destroyEvents () {
+      beManager.removeAllEvents('cornerSwipe')
+      beManager.removeAllEvents('cornerSwipe_r')
+      beManager.removeAllEvents('windowSwipe')
     }
+  },
+  beforeDestroy () {
+    this.destroyEvents()
   }
 }
 </script>

@@ -20,7 +20,6 @@ const getMonthNum = (monthName) => {
 const defineDateFormat = (dateString) => {
   const defaultFormat = 'DD.MM.YYYY'
   let date = dateString.trim().toLowerCase()
-  console.log(date)
   if (date.indexOf('завтра') !== -1) {
     return defaultFormat
   }
@@ -93,9 +92,15 @@ const getValueBetweenRange = (startValue, endValue, percent) => {
   return (endValue - (((endValue - startValue) * percent)/100))
 }
 
+const getPercent = (startValue, endValue, curValue) => {
+  return ((100 / ((endValue + startValue) / curValue)) - 100) * -1
+  // return 100 - (100 / ((endValue + startValue) / curValue))
+}
+
 export {
   getMonthNum,
   convertAnyDateToUnix,
   defineDateFormat,
-  getValueBetweenRange
+  getValueBetweenRange,
+  getPercent
 }

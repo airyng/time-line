@@ -26,7 +26,10 @@ export default {
   name: 'App',
   data () {
     return {
-      range: null
+      range: {
+        start: -73735340490.60051,
+        end: -67809872085.90838
+      }
     }
   }
 }
